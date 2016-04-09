@@ -219,7 +219,7 @@ void mainscreen_two() { //2 Players game
 			break;
 		}
 	}
-	unsigned int t1 = 0x60000000;
+	unsigned int t1 = 0x40000000;
 	while(t1--) ;
 }
 void player_turn(int player){ //require input from human player(s)
