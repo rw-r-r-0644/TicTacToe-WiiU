@@ -1,65 +1,77 @@
-#include "init.h"
-#include "loader.h"
+#include <string.h>
+#include <stdarg.h>
+#include <stdlib.h>
+#include <malloc.h>
+#include "dynamic_libs/os_functions.h"
+#include "dynamic_libs/fs_functions.h"
+#include "dynamic_libs/gx2_functions.h"
+#include "dynamic_libs/sys_functions.h"
+#include "dynamic_libs/vpad_functions.h"
+#include "dynamic_libs/padscore_functions.h"
+#include "dynamic_libs/socket_functions.h"
+#include "dynamic_libs/ax_functions.h"
+#include "fs/fs_utils.h"
+#include "fs/sd_fat_devoptab.h"
+#include "system/memory.h"
+#include "utils/logger.h"
+#include "utils/utils.h"
+#include "common/common.h"
+#include "main.h"
 
-extern char __rx_start, __rx_end;
-extern char __rw_start, __rw_end;
+int b1 = 2;
+int b2 = 2;
+int b3 = 2;
+int b4 = 2;
+int b5 = 2;
+int b6 = 2;
+int b7 = 2;
+int b8 = 2;
+int b9 = 2;
 
-void _main() {
+int turn;
+
+bool exitCheck = false;
+VPADData vpad_data;
+int error = 0;
+
+int _main() {
+	InitOSFunctionPointers();
+	InitVPadFunctionPointers();
+	memoryInitialize();
+	
 	_osscreeninit();
-	//Export functions in main() so you won't have to export them every time you use
-	OSDynLoad_Acquire("vpad.rpl", &vpadHandle);
-	OSDynLoad_FindExport(vpadHandle, 0, "VPADRead", &VPADRead);
-	//OSScreen Rendering Stuff (for speedy loads)
-	OSDynLoad_FindExport(coreinit_handle, 0, "DCFlushRange", &DCFlushRange);
-	OSDynLoad_FindExport(coreinit_handle, 0, "OSScreenFlipBuffersEx", &OSScreenFlipBuffersEx);
-	OSDynLoad_FindExport(coreinit_handle, 0, "OSScreenGetBufferSizeEx", &OSScreenGetBufferSizeEx);
-	OSDynLoad_FindExport(coreinit_handle, 0, "OSScreenClearBufferEx", &OSScreenClearBufferEx);
-	OSDynLoad_FindExport(coreinit_handle, 0, "OSScreenPutPixelEx", &OSScreenPutPixelEx);
-	OSDynLoad_FindExport(coreinit_handle, 0, "OSAllocFromSystem", &OSAllocFromSystem);
-	OSDynLoad_FindExport(coreinit_handle, 0, "OSFreeToSystem", &OSFreeToSystem);
-	OSDynLoad_FindExport(coreinit_handle, 0, "OSScreenPutFontEx", &OSScreenPutFontEx);
 	//Game Loop
 	while(1) {
 		welcomescreen(); //Start screen
+		if(exitCheck) break;
 		mainscreen_two(); //2 Players game
+		if(exitCheck) break;
 	}
+	_osscreenexit();
+	memoryRelease();
+	return EXIT_SUCCESS;
 }
 //Basic Graphs
 void _osscreeninit() {
-	void(*OSScreenInit)();
-	unsigned int(*OSScreenGetBufferSizeEx)(unsigned int bufferNum);
-	unsigned int(*OSScreenSetBufferEx)(unsigned int bufferNum, void * addr);
-	OSDynLoad_FindExport(coreinit_handle, 0, "OSScreenInit", &OSScreenInit);
-	OSDynLoad_FindExport(coreinit_handle, 0, "OSScreenGetBufferSizeEx", &OSScreenGetBufferSizeEx);
-	OSDynLoad_FindExport(coreinit_handle, 0, "OSScreenSetBufferEx", &OSScreenSetBufferEx);
-	//Call the Screen initilzation function.
 	OSScreenInit();
 	//Grab the buffer size for each screen (TV and gamepad)
 	int buf0_size = OSScreenGetBufferSizeEx(0);
-	int buf1_size = OSScreenGetBufferSizeEx(1);
+	//int buf1_size = OSScreenGetBufferSizeEx(1);
 	//Set the buffer area.
 	OSScreenSetBufferEx(0, (void *)0xF4000000);
 	OSScreenSetBufferEx(1, (void *)0xF4000000 + buf0_size);
+	OSScreenEnableEx(0, 1);
+	OSScreenEnableEx(1, 1);
 }
 void _osscreenexit() {
-	int ii=0;
-	for(ii;ii<2;ii++)
+	for(int ii=0;ii<2;ii++)
 	{
 		fillScreen(0,0,0,0);
 		flipBuffers();
 	}
 }
 void ExitApplication() { //Thanks to Blackspoon (@GBATemp)
-	_osscreenexit(); //clear buffers
-   // Return to old stack for exit
-   asm volatile("lis 1, 0x1ab5 ; ori 1, 1, 0xd138");
-
-   unsigned int coreinit;
-   OSDynLoad_Acquire("coreinit.rpl", &coreinit);
-   void(*_Exit)();
-   OSDynLoad_FindExport(coreinit, 0, "_Exit", &_Exit);
-
-   _Exit();
+	_osscreenexit();
 }
 //Gamepad lines:
 //18 lines: 0-17
@@ -143,6 +155,7 @@ unsigned int absu(int num) { //abs() clone for wii u
 	if (num < 0) {
 		return -num;
 	}
+	return num;
 }
 //Game Graphs
 void welcomescreen() {
@@ -156,10 +169,11 @@ void welcomescreen() {
 	flipBuffers();
 	while(1) {
 		VPADRead(0, &vpad_data, 1, &error); //Read the vpaddata
-		if (vpad_data.btn_hold & BUTTON_HOME) {
-			ExitApplication();
+		if (vpad_data.btns_h & VPAD_BUTTON_HOME) {
+			exitCheck = true;
+			return;
 		}
-		if (vpad_data.btn_hold & BUTTON_A) {
+		if (vpad_data.btns_h & VPAD_BUTTON_A) {
 			break;
 		}
 		if (vpad_data.tpdata.touched == 1)
@@ -192,9 +206,11 @@ void mainscreen_two() { //2 Players game
 	while(1) {
 		if (turn == 1) {
 			player_turn(1);
+			if(exitCheck) return;
 			turn = 0;
 		} else {
 			player_turn(0);
+			if(exitCheck) return;
 			turn = 1;
 		}
 		unsigned int chkwin = check_win();
@@ -219,16 +235,16 @@ void mainscreen_two() { //2 Players game
 			break;
 		}
 	}
-	unsigned int t1 = 0x40000000;
-	while(t1--) ;
+	sleep(5);
 }
 void player_turn(int player){ //require input from human player(s)
 	while(1) {
 		VPADRead(0, &vpad_data, 1, &error); //Read the vpaddata
 		
-		//check home button
-		if (vpad_data.btn_hold & BUTTON_HOME) { //check if we should exit from application
-			ExitApplication();
+		//check home VPAD_BUTTON
+		if (vpad_data.btns_h & VPAD_BUTTON_HOME) { //check if we should exit from application
+			exitCheck = true;
+			return;
 		}
 		
 		//touch code
